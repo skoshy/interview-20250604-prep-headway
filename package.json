@@ -1,0 +1,16 @@
+{
+  "name": "interview-20250604-prep-headway",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "npx ts-node -- index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
