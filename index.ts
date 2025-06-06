@@ -1,65 +1,81 @@
-import express, { RequestHandler } from 'express';
+import express, { Response } from 'express';
 
 const PORT = 3000;
+
+const MAX_REQUESTS = 5;
+const MAX_TIME_SECONDS = 5;
+
 const app = express();
 
-const MAX_COUNT = 5;
-const TIMER_RESET_SECONDS = 5;
-
-const rateLimitMemo: Record<string, Map<string, {
-  timestamp: number,
-  removalTimeout: NodeJS.Timeout,
-}>> = {};
-
-const getOrCreateRateLimitMap = (ipAddress: string) => {
-  rateLimitMemo[ipAddress] = rateLimitMemo[ipAddress] || new Map();
-  return rateLimitMemo[ipAddress];
+type RequestDetail = {
+  timestamp: number;
+  timeout: NodeJS.Timeout;
 }
 
-const rateLimiter :RequestHandler = (req, res, next) => {
+const requestLog = new Map<string, Map<string, RequestDetail>>();
+
+const getOrCreateRequestDetailMapForIp = (ipAddress: string) => {
+  const requestDetailMapForIp: Map<string, RequestDetail> = requestLog.get(ipAddress) || new Map();
+  requestLog.set(ipAddress, requestDetailMapForIp);
+  return requestDetailMapForIp;
+}
+
+const handleTooManyRequests = (res: Response) => {
+  res.statusCode = 429
+  res.setHeader('Retry-After', MAX_TIME_SECONDS);
+  res.send('Too many requests');
+}
+
+const createRequestDetail = (ipAddress: string, requestDetailMapForIp: Map<string, RequestDetail>): [string, RequestDetail] => {
+  const requestKey = crypto.randomUUID();
+  const requestDetail: RequestDetail = {
+    timestamp: new Date().getTime(),
+    timeout: setTimeout(() => {
+      requestDetailMapForIp.delete(requestKey);
+
+      if (requestLog.get(ipAddress)?.size) {
+        // there's still requests being tracked, keep IP
+        return;
+      }
+
+      requestLog.delete(ipAddress);
+    }, MAX_TIME_SECONDS * 1000),
+  }
+
+  return [requestKey, requestDetail];
+}
+
+app.use((req, res, next) => {
   const ipAddress = req.ip;
 
-  if (!ipAddress) {
-    // allow requests through if there's no captured IP
-    next();
+  console.log(`Request: ${req.path}, IP: ${ipAddress}`);
+
+  if (ipAddress === undefined) {
+    console.log('No IP address gathered; just send the request through');
+    return next();
+  }
+
+  const requestDetailMapForIp = getOrCreateRequestDetailMapForIp(ipAddress);
+
+  if (requestDetailMapForIp.size >= 5) {
+    handleTooManyRequests(res);
     return;
   }
 
-  const rateLimitMapForIp = getOrCreateRateLimitMap(ipAddress);
+  const [requestKey, newRequestForMap] = createRequestDetail(ipAddress, requestDetailMapForIp);
 
-  const requestId = crypto.randomUUID();
-  const timestamp = new Date().getTime();
+  requestDetailMapForIp.set(requestKey, newRequestForMap);
 
-  rateLimitMapForIp.set(requestId, {
-    timestamp,
-    removalTimeout: setTimeout(() => {
-      console.log(`For IP: ${ipAddress}, Deleting request ${requestId}`)
-      rateLimitMapForIp.delete(requestId);
-    }, TIMER_RESET_SECONDS * 1000),
-  })
-
-  if (rateLimitMapForIp.size > MAX_COUNT) {
-    res.setHeader('Retry-After', TIMER_RESET_SECONDS);
-    res.status(429).send('Exceeded limit');
-    return;
-  }
-
-  console.log(`Req for ${req.path}`);
-
+  console.log({requestLog})
   next();
-};
+});
 
 app.set('trust proxy', true);
-app.use(rateLimiter);
 
 app.get('/', (_, res) => {
-  res.send('Hello');
+  res.send('Hi')
 });
 
-app.get('/howdy', (_, res) => {
-  res.send('Howdy');
-});
+app.listen(3000);
 
-app.listen(PORT, () => {
-  console.log('Server running');
-});
+
