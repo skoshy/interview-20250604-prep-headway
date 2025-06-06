@@ -8,7 +8,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon index.ts"
+    "dev": "nodemon index.ts",
+    "dev-sliding": "nodemon index-sliding-window.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.2",
